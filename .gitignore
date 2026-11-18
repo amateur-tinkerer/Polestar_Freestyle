@@ -1,0 +1,14 @@
+# Editor and OS clutter
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store
+*.bak
+*.tmp
+
+# Release builds made by the workflow
+build/
+
+# Reference material that isn't ours to publish (RestedXP guide files)
+temp/

@@ -1,0 +1,38 @@
+# Builds the addon zip and publishes a GitHub release whenever a version tag
+# (for example v0.4.3) is pushed. The tag must match "## Version:" in the .toc.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the .toc version matches the tag
+        run: |
+          toc=$(grep -m1 '^## Version:' Polestar_FreeQuest.toc | sed 's/^## Version:[[:space:]]*//' | tr -d '\r')
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$toc" != "$tag" ]; then
+            echo "::error::The .toc says version $toc but the tag is $GITHUB_REF_NAME. Make them the same."
+            exit 1
+          fi
+
+      - name: Build the zip
+        run: |
+          mkdir -p build/Polestar_FreeQuest
+          rsync -a --exclude '.git*' --exclude '.github' --exclude 'build' ./ build/Polestar_FreeQuest/
+          cd build
+          zip -r "Polestar_FreeQuest-${GITHUB_REF_NAME}.zip" Polestar_FreeQuest
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/Polestar_FreeQuest-*.zip
+          generate_release_notes: true

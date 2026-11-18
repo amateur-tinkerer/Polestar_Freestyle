@@ -1,0 +1,19 @@
+## Interface: 16001
+## Title: Polestar Free Questing
+## Notes: Polestar's guide window, arrow and map for the quests already in your log; a quest browser (every quest by zone with its chain, XP and rewards) and a gear planner (the upgrades quests, dungeons and rares give you), both guided. /polestar free, /polestar quests, /freequest gear
+## Author: Polestar_FreeQuest
+## Version: 0.4.3
+## X-License: GPL-3.0-only
+## Category: Polestar
+## IconTexture: Interface\AddOns\Polestar_FreeQuest\Media\logo
+## Dependencies: Polestar
+## SavedVariablesPerCharacter: PolestarFreeQuestCharDB
+
+FreeQuest.lua
+Browser\Index.lua
+Browser\Planner.lua
+Browser\Section.lua
+Browser\GearIndex.lua
+Browser\Gear.lua
+Browser\GearItem.lua
+Browser\LookupMarks.lua
