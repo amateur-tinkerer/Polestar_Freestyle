@@ -2,7 +2,7 @@
 
 **Pick your own quests and gear in [Polestar](https://github.com/fitzforge/polestar), and let it guide you there.**
 
-A community addon for WoW: Forever. It adds a **Quests** and a **Gear** section to Polestar's hub, and a
+A community addon for Polestar It adds a **Quests** and a **Gear** section to Polestar's hub, and a
 guide for whatever is in your quest log.
 
 [![Latest release](https://img.shields.io/github/v/release/amateur-tinkerer/Polestar_Freestyle?label=download)](https://github.com/amateur-tinkerer/Polestar_Freestyle/releases/latest)
