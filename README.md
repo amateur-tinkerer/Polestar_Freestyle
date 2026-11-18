@@ -34,12 +34,6 @@ guide for whatever is in your quest log.
 To update, unzip the new release over the old folder. Neither the addon nor the Polestar Client updates it
 for you.
 
-**Coming from Polestar_FreeQuest (0.4.3 or older)?** The addon was renamed. Delete the old
-`Polestar_FreeQuest` folder, or both copies load at once. To keep your marked quests and gear, rename
-`Polestar_FreeQuest.lua` to `Polestar_Freestyle.lua` in `WTF\Account\<account>\SavedVariables\` and in
-each character's `WTF\Account\<account>\<realm>\<character>\SavedVariables\`. Do this with the game
-closed.
-
 ## Quests
 
 Open it from the **Quests** icon on the hub, or `/polestar quests`.
