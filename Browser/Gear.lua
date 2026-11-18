@@ -992,7 +992,7 @@ end)
 -- Item tooltips: a marked upgrade says so.
 local Hooks = P.Hooks
 if Hooks and Hooks.ItemLines then
-	Hooks.ItemLines("Polestar_FreeQuest_Gear", function(tooltip, _, itemID)
+	Hooks.ItemLines("Polestar_Freestyle_Gear", function(tooltip, _, itemID)
 		if not itemID then return end
 		local _, g = db()
 		if not g.marked[itemID] then return end

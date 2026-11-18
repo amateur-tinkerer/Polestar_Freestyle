@@ -108,7 +108,7 @@ end
 -- Item tooltips: the marked quests that give it.
 local Hooks = P.Hooks
 if Hooks and Hooks.ItemLines then
-	Hooks.ItemLines("Polestar_FreeQuest", function(tooltip, _, itemID)
+	Hooks.ItemLines("Polestar_Freestyle", function(tooltip, _, itemID)
 		if not itemID then return end
 		local m = marked()
 		if not next(m) then return end

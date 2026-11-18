@@ -4,9 +4,9 @@
 ## Author: amateur-tinkerer
 ## Version: 0.4.4
 ## X-License: GPL-3.0-only
-## X-Website: https://github.com/amateur-tinkerer/Polestar_FreeQuest
+## X-Website: https://github.com/amateur-tinkerer/Polestar_Freestyle
 ## Category: Polestar
-## IconTexture: Interface\AddOns\Polestar_FreeQuest\Media\logo
+## IconTexture: Interface\AddOns\Polestar_Freestyle\Media\logo
 ## Dependencies: Polestar
 ## SavedVariables: PolestarFreeQuestDB
 ## SavedVariablesPerCharacter: PolestarFreeQuestCharDB

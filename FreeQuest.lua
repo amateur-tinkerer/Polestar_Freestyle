@@ -585,7 +585,7 @@ local registeredTitle
 local function register(steps, title, zoneMap, zoneName)
 	local def = {
 		id = GUIDE_ID, pack = PACK, title = title, category = CATEGORY,
-		author = "Polestar_FreeQuest", version = 1,
+		author = "Polestar_Freestyle", version = 1,
 		why = "The quests already in your log: where to kill, collect and hand in, nearest first.",
 		pitch = "Your own quests, Polestar's arrow.",
 		keywords = { "free", "questing", "quest log", "my quests" },
@@ -610,7 +610,7 @@ local function packFormat()
 end
 
 P.RegisterPack({
-	addon = ADDON, id = PACK, format = packFormat(), title = "Freestyle questing", author = "Polestar_FreeQuest",
+	addon = ADDON, id = PACK, format = packFormat(), title = "Freestyle questing", author = "Polestar_Freestyle",
 	version = (C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata(ADDON, "Version")) or "0.1.0",
 	license = "GPL-3.0-only",
 	notes = "Polestar's guide window for the quests already in your log. /polestar free",

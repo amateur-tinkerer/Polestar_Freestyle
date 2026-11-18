@@ -5,7 +5,7 @@
 A community addon for WoW: Forever. It adds a **Quests** and a **Gear** section to Polestar's hub, and a
 guide for whatever is in your quest log.
 
-[![Latest release](https://img.shields.io/github/v/release/amateur-tinkerer/Polestar_FreeQuest?label=download)](https://github.com/amateur-tinkerer/Polestar_FreeQuest/releases/latest)
+[![Latest release](https://img.shields.io/github/v/release/amateur-tinkerer/Polestar_Freestyle?label=download)](https://github.com/amateur-tinkerer/Polestar_Freestyle/releases/latest)
 ![WoW: Forever](https://img.shields.io/badge/WoW-Forever%2016001-8a6d3b)
 ![Requires Polestar 0.4.1+](https://img.shields.io/badge/requires-Polestar%200.4.1%2B-4a6fa5)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-lightgrey)](LICENSE.txt)
@@ -13,7 +13,7 @@ guide for whatever is in your quest log.
 ![The Quests section](docs/screenshots/quests.jpg)
 
 > Not made by the Polestar team and not an official Polestar feature. Report problems with this addon
-> [here](https://github.com/amateur-tinkerer/Polestar_FreeQuest/issues), not to Polestar.
+> [here](https://github.com/amateur-tinkerer/Polestar_Freestyle/issues), not to Polestar.
 
 ## What it does
 
@@ -26,13 +26,19 @@ guide for whatever is in your quest log.
 ## Install
 
 1. Install [Polestar](https://github.com/fitzforge/polestar) 0.4.1 or newer.
-2. Download `Polestar_FreeQuest-vX.Y.Z.zip` from the
-   [latest release](https://github.com/amateur-tinkerer/Polestar_FreeQuest/releases/latest).
-3. Unzip it into `World of Warcraft\_forever_\Interface\AddOns\`, so `Polestar_FreeQuest` sits next to
+2. Download `Polestar_Freestyle-vX.Y.Z.zip` from the
+   [latest release](https://github.com/amateur-tinkerer/Polestar_Freestyle/releases/latest).
+3. Unzip it into `World of Warcraft\_forever_\Interface\AddOns\`, so `Polestar_Freestyle` sits next to
    `Polestar`.
 
 To update, unzip the new release over the old folder. Neither the addon nor the Polestar Client updates it
 for you.
+
+**Coming from Polestar_FreeQuest (0.4.3 or older)?** The addon was renamed. Delete the old
+`Polestar_FreeQuest` folder, or both copies load at once. To keep your marked quests and gear, rename
+`Polestar_FreeQuest.lua` to `Polestar_Freestyle.lua` in `WTF\Account\<account>\SavedVariables\` and in
+each character's `WTF\Account\<account>\<realm>\<character>\SavedVariables\`. Do this with the game
+closed.
 
 ## Quests
 
@@ -159,7 +165,7 @@ settings, shared with its map markers.
 
 ## Reporting a problem
 
-Open an [issue](https://github.com/amateur-tinkerer/Polestar_FreeQuest/issues) with your Polestar and
+Open an [issue](https://github.com/amateur-tinkerer/Polestar_Freestyle/issues) with your Polestar and
 addon versions, class and level, what you clicked, and a screenshot if you can.
 
 ## License

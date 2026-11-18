@@ -17,7 +17,7 @@ jobs:
 
       - name: Check the .toc version matches the tag
         run: |
-          toc=$(grep -m1 '^## Version:' Polestar_FreeQuest.toc | sed 's/^## Version:[[:space:]]*//' | tr -d '\r')
+          toc=$(grep -m1 '^## Version:' Polestar_Freestyle.toc | sed 's/^## Version:[[:space:]]*//' | tr -d '\r')
           tag="${GITHUB_REF_NAME#v}"
           if [ "$toc" != "$tag" ]; then
             echo "::error::The .toc says version $toc but the tag is $GITHUB_REF_NAME. Make them the same."
@@ -26,13 +26,13 @@ jobs:
 
       - name: Build the zip
         run: |
-          mkdir -p build/Polestar_FreeQuest
-          rsync -a --exclude '.git*' --exclude '.github' --exclude 'build' --exclude 'docs' --exclude 'temp' --exclude 'tools' ./ build/Polestar_FreeQuest/
+          mkdir -p build/Polestar_Freestyle
+          rsync -a --exclude '.git*' --exclude '.github' --exclude 'build' --exclude 'docs' --exclude 'temp' --exclude 'tools' ./ build/Polestar_Freestyle/
           cd build
-          zip -r "Polestar_FreeQuest-${GITHUB_REF_NAME}.zip" Polestar_FreeQuest
+          zip -r "Polestar_Freestyle-${GITHUB_REF_NAME}.zip" Polestar_Freestyle
 
       - name: Publish the release
         uses: softprops/action-gh-release@v2
         with:
-          files: build/Polestar_FreeQuest-*.zip
+          files: build/Polestar_Freestyle-*.zip
           generate_release_notes: true

@@ -338,7 +338,7 @@ do
 				else
 					-- No data yet: a holder the login replan fills.
 					P.RegisterGuide({ id = gid, pack = "lookup", title = "Quest chains", category = FQ.CATEGORY or "Freestyle questing",
-						author = "Polestar_FreeQuest", version = 1,
+						author = "Polestar_Freestyle", version = 1,
 						steps = { { title = "Quest chains", goals = { { t = "task", text = "Reading Polestar's quest data..." } } } } })
 				end
 			end
