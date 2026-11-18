@@ -1,0 +1,19 @@
+Polestar Freestyle: third-party data
+====================================
+
+Data/QuestText.lua
+------------------
+Data from Efficient Games (https://efficient.games), licensed under CC BY 4.0
+(https://creativecommons.org/licenses/by/4.0/).
+Source: EG Link output for World of Warcraft: Forever,
+https://github.com/JIVESCORP/eg-link-output-wowf, dataset quests.enUS
+(build named in the file's header and in FQB.QuestTextBuild).
+Changes: trimmed to each quest's description and objectives text, whitespace
+trimmed, stored as a Lua table by tools/build-questtext.ps1.
+
+The quest text itself is World of Warcraft game content, the property of
+Blizzard Entertainment; the CC BY 4.0 licence covers the dataset, not
+Blizzard's content.
+
+Everything else in this addon reads Polestar's own data at run time and ships
+no third-party data.

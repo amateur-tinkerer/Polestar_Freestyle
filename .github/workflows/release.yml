@@ -27,7 +27,7 @@ jobs:
       - name: Build the zip
         run: |
           mkdir -p build/Polestar_FreeQuest
-          rsync -a --exclude '.git*' --exclude '.github' --exclude 'build' ./ build/Polestar_FreeQuest/
+          rsync -a --exclude '.git*' --exclude '.github' --exclude 'build' --exclude 'docs' --exclude 'temp' --exclude 'tools' ./ build/Polestar_FreeQuest/
           cd build
           zip -r "Polestar_FreeQuest-${GITHUB_REF_NAME}.zip" Polestar_FreeQuest
 

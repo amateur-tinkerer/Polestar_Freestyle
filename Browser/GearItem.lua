@@ -1,4 +1,4 @@
--- Polestar Free Questing: the Gear section's item page.
+-- Polestar Freestyle: the Gear section's item page.
 --
 -- Clicking an upgrade in the Gear list opens this page in the list's place
 -- (Back, Esc or another slot returns): the item, what it changes against the
@@ -75,6 +75,9 @@ local function text(role, color)
 		t:SetJustifyH("LEFT")
 		return t
 	end)
+	-- A pooled line may come back right-aligned from its last use (the chain
+	-- rows' level and giver columns): left unless the caller says otherwise.
+	fs:SetJustifyH("LEFT")
 	fs:SetWordWrap(false)
 	fs:SetWidth(0)
 	W.Color(fs, color or "text")
@@ -154,10 +157,11 @@ local function showLookup(kind, id)
 	GV.Jump(function() P.Lookup.Show(nil, kind, id) end)
 end
 
-local function showQuest(qid)
+-- The quest in the Quests list, with the reward this page is about lit there.
+local function showQuest(qid, item)
 	local QS = FQB.Section
 	if not (QS and QS.Reveal) then return end
-	GV.Jump(function() QS.Reveal({ qid }) end)
+	GV.Jump(function() QS.Reveal({ qid }, { item = item }) end)
 end
 
 -- Polestar's page for a dungeon. Its page forgets the dungeon when the hub's
@@ -193,7 +197,12 @@ local STAT_FALLBACK = {
 local DECIMAL = { dps = true, ohDps = true, rdps = true, crit = true, hit = true, spellCrit = true, spellHit = true,
 	dodge = true, parry = true, block = true, haste = true, expertise = true, armorPen = true }
 
+local paintSlot -- the slot the page compares in (GI.Paint)
+
 local function statName(k)
+	-- A wand or gun's damage is filed as weapon DPS; Polestar's name for it
+	-- says "melee", which reads wrong in the ranged slot.
+	if k == "dps" and paintSlot == 18 then return "Weapon DPS" end
 	if UI.ScalesStatName then
 		local ok, n = pcall(UI.ScalesStatName, k)
 		if ok and n then return n end
@@ -347,7 +356,7 @@ local function questBlock(y, item, src, plevel)
 			local gid, msg = FQB.StartGuide({ src.quest })
 			if not gid then setNote(msg) end
 		end, true },
-		{ "Show in Quests", function() showQuest(src.quest) end },
+		{ "Show in Quests", function() showQuest(src.quest, item) end },
 		{ "Lookup", function() showLookup("quest", src.quest) end },
 	})
 	return y
@@ -554,6 +563,7 @@ end
 
 function GI.Paint(id, slot)
 	if not page then return end
+	paintSlot = slot
 	reset()
 	local w = scroll:GetWidth()
 	if w and w > 0 then content:SetWidth(w - 10) end

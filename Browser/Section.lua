@@ -1,4 +1,4 @@
--- Polestar Free Questing: the Quests section of Polestar's hub.
+-- Polestar Freestyle: the Quests section of Polestar's hub.
 --
 -- Every quest this character can take, by zone ("Westfall (10-20)"), each
 -- zone a tree of quest chains and single quests: level, state (done, in your
@@ -38,7 +38,7 @@ local INDENT = 18
 local TOOL_H = 40
 local STRIP_H = 36
 local HEAD_H = 32
-local DETAIL_H = 156
+local DETAIL_H = 224
 local ITEMS = 4      -- reward icons on a row
 local DETAIL_ITEMS = 8
 local DOT = "  \194\183  "
@@ -50,6 +50,7 @@ local STAR_W, ITEM_W, ITEM_GAP = 20, 18, 3
 local ITEMS_RIGHT = 2 + STAR_W + 6
 local XP_RIGHT = ITEMS_RIGHT + ITEMS * ITEM_W + (ITEMS - 1) * ITEM_GAP + 8
 local XP_W = 78
+local SIZE_W = 44 -- the length meter (or, in your log, the way there), left of the XP
 
 local WINDOW_KEY, LOW_KEY = "qol.questLevelWindow", "qol.lowLevelQuests"
 
@@ -76,6 +77,7 @@ local flat = {}
 local query = ""
 local searchOpen = {} -- while searching: what the player opened or closed
 local focus -- the quest the details strip shows
+local focusItem -- a reward to light up (Gear's "Show in Quests")
 
 local function db()
 	local d = FQ.CharDB()
@@ -84,9 +86,47 @@ local function db()
 		b.filter = "available"
 	end
 	local s = b.sort
-	if s.key ~= "level" and s.key ~= "xp" and s.key ~= "name" then s.key = "level" end
+	if s.key ~= "level" and s.key ~= "xp" and s.key ~= "name" and s.key ~= "rewards" then s.key = "level" end
+	-- In your quest log has its own order, nearest first unless a column is picked.
+	if type(b.sortLog) ~= "table" then b.sortLog = { key = "near", desc = false } end
+	local sl = b.sortLog
+	if sl.key ~= "near" and sl.key ~= "level" and sl.key ~= "xp" and sl.key ~= "name" and sl.key ~= "rewards" then sl.key = "near" end
 	if type(b.open[b.filter]) ~= "table" then b.open[b.filter] = {} end
 	return d, b
+end
+
+-- The sort the shown list uses.
+local function sortOf(b)
+	return b.filter == "log" and b.sortLog or b.sort
+end
+
+-- In your quest log: how far each quest's next place is (FQ.LogReach), read
+-- again when the list is rebuilt, at most every few seconds.
+local reach, reachAt = {}, 0
+local REACH_EVERY = 3
+-- (How far "Near you" reaches: Freestyle's options, Settings.lua.)
+local function refreshReach(force)
+	local now = GetTime and GetTime() or 0
+	if not force and now - reachAt < REACH_EVERY then return end
+	reachAt = now
+	reach = (FQ.LogReach and FQ.LogReach()) or {}
+end
+
+local function travelText(sec)
+	if type(sec) ~= "number" or sec >= 1e8 then return "" end
+	-- Yards (Freestyle's option): the straight line, as Polestar measures it.
+	if FQB.Opt and FQB.Opt("nearUnit") == "yards" then
+		local yd = sec * (FQB.RUN_SPEED or 7)
+		if yd < 1000 then return format("%d yd", floor(yd / 10 + 0.5) * 10) end
+		return format("%.1fk yd", yd / 1000)
+	end
+	local LK = UI.Lookup
+	if LK and LK.Travel then
+		local ok, s = pcall(LK.Travel, sec)
+		if ok and s then return s end
+	end
+	if sec < 60 then return "< 1 min" end
+	return format("%d min", floor(sec / 60 + 0.5))
 end
 
 local function thousands(n)
@@ -189,6 +229,23 @@ end
 -- A node's value for the sort column, over its shown quests.
 local function value(ids, key, plevel, title)
 	if key == "name" then return lower(title or "") end
+	if key == "near" then
+		local lo = 1e9
+		for _, id in ipairs(ids) do
+			local r = reach[id]
+			if r and r.cost < lo then lo = r.cost end
+		end
+		return lo
+	end
+	if key == "rewards" then
+		-- How many items it hands out (rewards and choices), quests not done yet.
+		local n = 0
+		for _, id in ipairs(ids) do
+			local r = FQB.Status(id) ~= "done" and FQB.Quest(id)
+			if r then n = n + #(r.rewards or {}) + #(r.choices or {}) end
+		end
+		return n
+	end
 	if key == "xp" then
 		local sum = 0
 		for _, id in ipairs(ids) do
@@ -245,11 +302,86 @@ local function setOpen(key, on)
 	end
 end
 
+-- "Near you" (In your quest log): what is within NEAR of where you stand,
+-- quests to hand in first, then your quests' next places, then quests to pick
+-- up from givers close by in this zone. Worked out with the reach (every
+-- REACH_EVERY seconds at most).
+
+local nearList, nearAt = {}, -1
+local function nearYou(plevel)
+	if nearAt == reachAt then return nearList end
+	nearAt = reachAt
+	local list = {}
+	-- Freestyle's options (Settings.lua): how far, how many, what kinds.
+	local NEAR = (tonumber(FQB.Opt and FQB.Opt("nearMinutes")) or 2.5) * 60
+	local NEAR_MAX = tonumber(FQB.Opt and FQB.Opt("nearMax")) or 10
+	local turnins = not FQB.Opt or FQB.Opt("nearTurnins") ~= false
+	local pickups = not FQB.Opt or FQB.Opt("nearPickups") ~= false
+	for id, r in pairs(reach) do
+		if r.cost <= NEAR and (turnins or not r.ready) then
+			list[#list + 1] = { id = id, cost = r.cost, near = r.ready and "turnin" or "work" }
+		end
+	end
+	local Lk, Cx = P.Lookup, P.Codex
+	local from = P.PlayerPoint and P.PlayerPoint()
+	local zid = hereZone()
+	if pickups and from and zid and Lk and Lk.QuestEnd and Cx and Cx.Quest and P.DirectTravelCost then
+		local player = Lk.PlayerInfo and Lk.PlayerInfo()
+		for _, z in ipairs(FQB.Zones()) do
+			if z.id == zid then
+				for _, node in ipairs(z.nodes) do
+					for _, id in ipairs(nodeIds(node)) do
+						if FQB.Status(id) == "available" and shown(id, "available", plevel, {}) then
+							local cq = Cx.Quest(id)
+							local ok, giver = pcall(Lk.QuestEnd, cq and cq.start, from, player, true)
+							local spawn = ok and type(giver) == "table" and giver.spawn
+							local c = spawn and P.DirectTravelCost(from, spawn)
+							if c and c <= NEAR then list[#list + 1] = { id = id, cost = c, near = "pickup" } end
+						end
+					end
+				end
+			end
+		end
+	end
+	local rank = { turnin = 1, work = 2, pickup = 3 }
+	table.sort(list, function(a, b)
+		if a.near ~= b.near then return rank[a.near] < rank[b.near] end
+		if a.cost ~= b.cost then return a.cost < b.cost end
+		return a.id < b.id
+	end)
+	for i = #list, NEAR_MAX + 1, -1 do list[i] = nil end
+	nearList = list
+	return list
+end
+
+-- Near you in the picked column's order: "near" keeps hand-ins first, then
+-- the nearest; any other column sorts like the rest of the list.
+local function nearSorted(near, sort, plevel)
+	local out = {}
+	for i, n in ipairs(near) do out[i] = n end
+	if sort.key == "near" then
+		if sort.desc then
+			for i = 1, floor(#out / 2) do out[i], out[#out + 1 - i] = out[#out + 1 - i], out[i] end
+		end
+		return out
+	end
+	for _, n in ipairs(out) do
+		local r = FQB.Quest(n.id)
+		n.title = lower(r and r.title or "")
+		n.v = value({ n.id }, sort.key, plevel, r and r.title)
+	end
+	table.sort(out, before(sort))
+	return out
+end
+
+local NEAR_ZONE = { id = "near", name = "Near you" }
+
 -- The rows: zones, then their chains and quests, then a chain's quests.
 local function buildFlat()
 	local d, b = db()
 	local plevel = FQB.PlayerLevel()
-	local sort, filter = b.sort, b.filter
+	local sort, filter = sortOf(b), b.filter
+	if filter == "log" then refreshReach() end
 	local marked = d.marked
 	local here = filter == "available" and hereZone() or nil
 	local out = {}
@@ -276,11 +408,31 @@ local function buildFlat()
 	end
 	table.sort(zoneList, before(sort))
 	local total = 0
+	if filter == "log" and query == "" then
+		local near = nearYou(plevel)
+		if #near > 0 then
+			local nopen = isOpen("znear", true)
+			local ids = {}
+			for _, n in ipairs(near) do ids[#ids + 1] = n.id end
+			out[#out + 1] = { kind = "zone", zone = NEAR_ZONE, count = #near, depth = 0, key = "znear", open = nopen, here = true, ids = ids }
+			if nopen then
+				for _, n in ipairs(nearSorted(near, sort, plevel)) do
+					out[#out + 1] = { kind = "quest", id = n.id, depth = 1, near = n.near, cost = n.cost }
+				end
+			end
+		end
+	end
 	for _, ze in ipairs(zoneList) do
 		total = total + ze.count
 		local zkey = "z" .. ze.zone.id
 		local zopen = isOpen(zkey, ze.here)
-		out[#out + 1] = { kind = "zone", zone = ze.zone, count = ze.count, depth = 0, key = zkey, open = zopen, here = ze.here }
+		-- Ticking a zone ticks what it shows: each chain (to its last quest,
+		-- as a chain's own tick does) and each single quest.
+		local ids = {}
+		for _, ne in ipairs(ze.nodes) do
+			ids[#ids + 1] = type(ne.node) == "table" and ne.node.last or ne.node
+		end
+		out[#out + 1] = { kind = "zone", zone = ze.zone, count = ze.count, depth = 0, key = zkey, open = zopen, here = ze.here, ids = ids }
 		if zopen then
 			table.sort(ze.nodes, before(sort))
 			for _, ne in ipairs(ze.nodes) do
@@ -292,8 +444,25 @@ local function buildFlat()
 					for _, id in ipairs(ne.hit) do hitSet[id] = true end
 					out[#out + 1] = { kind = "chain", chain = node, depth = 1, key = ckey, open = copen, hits = #ne.hit }
 					if copen then
+						-- The quests still to do first; the done ones folded
+						-- under "N done" at the end, opened on a click.
+						local done = {}
 						for _, id in ipairs(node.quests) do
-							out[#out + 1] = { kind = "quest", id = id, depth = 2, dim = not hitSet[id] }
+							if FQB.Status(id) == "done" then
+								done[#done + 1] = id
+							else
+								out[#out + 1] = { kind = "quest", id = id, depth = 2, dim = not hitSet[id] }
+							end
+						end
+						if #done > 0 then
+							local dkey = "d" .. node.id
+							local dopen = isOpen(dkey, false)
+							out[#out + 1] = { kind = "done", depth = 2, key = dkey, open = dopen, count = #done }
+							if dopen then
+								for _, id in ipairs(done) do
+									out[#out + 1] = { kind = "quest", id = id, depth = 3, dim = not hitSet[id] }
+								end
+							end
 						end
 					end
 				else
@@ -368,9 +537,18 @@ end
 -- Rows
 ---------------------------------------------------------------------------
 
-local function itemButton(parent, size)
+-- glow: a ring that lights when the icon is the reward the Gear page asked
+-- about (QS.Reveal(ids, { item = id })).
+local function itemButton(parent, size, glow)
 	local b = CreateFrame("Button", nil, parent)
 	b:SetSize(size, size)
+	if glow then
+		b.Glow = W.Fill(b, "accent", "BACKGROUND")
+		b.Glow:ClearAllPoints()
+		b.Glow:SetPoint("TOPLEFT", b, "TOPLEFT", -2, 2)
+		b.Glow:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", 2, -2)
+		b.Glow:Hide()
+	end
 	b.Icon = b:CreateTexture(nil, "ARTWORK")
 	b.Icon:SetAllPoints(b)
 	b.Icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
@@ -383,6 +561,7 @@ FQB.ItemButton = itemButton
 
 local function setItem(b, itemID)
 	b.psItem = itemID
+	if b.Glow then b.Glow:SetShown(itemID ~= nil and itemID == focusItem) end
 	if itemID then
 		b.Icon:SetTexture(FQB.ItemIcon(itemID))
 		b:Show()
@@ -402,11 +581,28 @@ end
 
 local function onCheck(self)
 	local r = self:GetParent()
+	local _, b = db()
+	local e = r.psEntry
+	-- A zone (or Near you): every quest and chain under it, on or off.
+	if e and e.kind == "zone" and e.ids then
+		local on = self:GetChecked() and true or nil
+		for _, id in ipairs(e.ids) do b.selected[id] = on end
+		QS.Paint()
+		return
+	end
 	local id = rowQuest(r)
 	if not id then return end
-	local _, b = db()
 	b.selected[id] = self:GetChecked() and true or nil
 	QS.Paint()
+end
+
+-- A zone's tick: on when everything under it is ticked.
+local function allTicked(ids, selected)
+	if not ids or #ids == 0 then return false end
+	for _, id in ipairs(ids) do
+		if not selected[id] then return false end
+	end
+	return true
 end
 
 local function onStar(self)
@@ -421,9 +617,7 @@ local function rowMenu(r)
 	W.ShowMenu(r, {
 		{ text = d.marked[id] and "Unmark" or "Mark", icon = "star", onClick = function() QS.ToggleMark(id) end },
 		{ text = "Guide this quest", icon = "icon-goto", onClick = function() QS.Start({ id }) end },
-		{ text = "Show in Lookup", icon = "search", onClick = function()
-			if P.Lookup and P.Lookup.Show then P.Lookup.Show(nil, "quest", id) end
-		end },
+		{ text = "Show in Lookup", icon = "search", onClick = function() QS.ShowInLookup(id) end },
 	}, { point = "TOPLEFT", relPoint = "BOTTOMLEFT", x = 40, y = 0 })
 end
 
@@ -434,11 +628,17 @@ local function onRowClick(self, button)
 		rowMenu(self)
 		return
 	end
+	if e.kind == "done" then
+		setOpen(e.key, not e.open)
+		QS.Refresh()
+		return
+	end
 	if e.kind == "zone" or e.kind == "chain" then
 		setOpen(e.key, not e.open)
-		if e.kind == "chain" then focus = e.chain.last end
+		if e.kind == "chain" then focus = e.chain.last; focusItem = nil end
 		QS.Refresh()
 	else
+		if focus ~= e.id then focusItem = nil end
 		focus = e.id
 		QS.Paint()
 	end
@@ -463,12 +663,12 @@ local function row(i)
 	r.Level:SetJustifyH("RIGHT")
 	r.Status = W.Tex(r, "ARTWORK", "circle", "quest")
 	r.Status:SetSize(12, 12)
-	r.Star = W.IconButton(r, "star", STAR_W, "Mark: Start guide takes the marked quests when none is ticked.", onStar)
+	r.Star = W.IconButton(r, "star", STAR_W, nil, onStar)
 	r.Star:SetPoint("RIGHT", r, "RIGHT", -2, 0)
 	r.Items = {}
 	local prev = r.Star
 	for k = 1, ITEMS do
-		local b = itemButton(r, ITEM_W)
+		local b = itemButton(r, ITEM_W, true)
 		b:SetPoint("RIGHT", prev, "LEFT", k == 1 and -6 or -ITEM_GAP, 0)
 		r.Items[k] = b
 		prev = b
@@ -477,11 +677,29 @@ local function row(i)
 	r.XP:SetJustifyH("RIGHT")
 	r.XP:SetWidth(XP_W)
 	r.XP:SetPoint("RIGHT", r, "RIGHT", -XP_RIGHT, 0)
+	-- How big the quest is: one to three rising bars, and a glyph when it
+	-- needs a group (elite) or a dungeon.
+	r.Size = CreateFrame("Frame", nil, r)
+	r.Size:SetSize(SIZE_W, 14)
+	r.Size:SetPoint("RIGHT", r, "RIGHT", -(XP_RIGHT + XP_W + 6), 0)
+	r.Bars = {}
+	for k = 1, 3 do
+		local t = r.Size:CreateTexture(nil, "ARTWORK")
+		t:SetTexture("Interface\\Buttons\\WHITE8X8")
+		t:SetSize(4, 4 + k * 3)
+		t:SetPoint("BOTTOMRIGHT", r.Size, "BOTTOMRIGHT", -(3 - k) * 6, 1)
+		r.Bars[k] = t
+	end
+	r.Tag = W.Tex(r.Size, "ARTWORK", "icon-elite", "warning")
+	r.Tag:SetSize(12, 12)
+	r.Tag:SetPoint("RIGHT", r.Size, "RIGHT", -20, 0)
+	-- In your quest log, the Length column holds the way there instead.
+	r.Near = W.Text(r.Size, "small", "textDim")
+	r.Near:SetJustifyH("RIGHT")
+	r.Near:SetPoint("RIGHT", r.Size, "RIGHT", 0, 0)
 	r.Name = W.Text(r, "body", "text")
 	r.Name:SetJustifyH("LEFT")
 	r:SetScript("OnClick", onRowClick)
-	r:SetScript("OnEnter", W.SimpleTip)
-	r:SetScript("OnLeave", W.HideTip)
 	rows[i] = r
 	return r
 end
@@ -497,6 +715,37 @@ local function questTip(id, plevel)
 	return q.title, lines
 end
 
+-- In your quest log: the way to the quest's next place, in travel time.
+local function paintNear(r, e, id)
+	for k = 1, 3 do r.Bars[k]:Hide() end
+	r.Tag:Hide()
+	local c = e.cost or (reach[id] and reach[id].cost)
+	local t = travelText(c)
+	r.Near:SetText(t)
+	r.Near:Show()
+	r.Size:SetShown(t ~= "")
+end
+
+-- The size meter: lit bars up to the quest's size, the glyph for a group
+-- (elite) or dungeon quest. Nothing when the size isn't known.
+local function paintSize(r, id)
+	r.Near:Hide()
+	local size, tag = nil, nil
+	if FQB.QuestSize then size, tag = FQB.QuestSize(id) end
+	if not (size or tag) then r.Size:Hide() return end
+	for k = 1, 3 do
+		local bar = r.Bars[k]
+		bar:SetShown(size ~= nil)
+		if size and k <= size then W.Color(bar, "accent") else W.Color(bar, "textMuted", 0.35) end
+	end
+	r.Tag:SetShown(tag ~= nil)
+	if tag then
+		r.Tag:SetTexture(Theme.Media(tag == "dungeon" and "icon-dungeon" or "icon-elite"))
+		W.Color(r.Tag, tag == "dungeon" and "accent" or "warning")
+	end
+	r.Size:Show()
+end
+
 local function paintRow(r, e, plevel, d, b)
 	r.psEntry = e
 	local x = 4 + e.depth * INDENT
@@ -509,7 +758,8 @@ local function paintRow(r, e, plevel, d, b)
 	r.Status:ClearAllPoints()
 	r.Status:SetPoint("LEFT", r.Level, "RIGHT", 6, 0)
 	r.Name:ClearAllPoints()
-	r.Name:SetPoint("RIGHT", r.XP, "LEFT", -8, 0)
+	r.Name:SetPoint("RIGHT", r.Size, "LEFT", -6, 0)
+	r.Size:Hide()
 	r.Sel:SetShown(false)
 	r:SetAlpha(1)
 
@@ -517,19 +767,22 @@ local function paintRow(r, e, plevel, d, b)
 		local z = e.zone
 		r.Toggle:Show()
 		r.Toggle:SetTexture(Theme.Media(e.open and "chevron-down" or "chevron-right"))
-		r.Check:Hide()
+		-- Tick the whole zone (or everything Near you) for one guide.
+		r.Check:SetShown(e.ids ~= nil and #e.ids > 0)
+		r.Check:SetChecked(allTicked(e.ids, b.selected))
 		r.Level:Hide()
+		local after = r.Check:IsShown() and r.Check or r.Toggle
 		if e.here then
 			-- You are here.
 			r.Status:ClearAllPoints()
-			r.Status:SetPoint("LEFT", r.Toggle, "RIGHT", 6, 0)
+			r.Status:SetPoint("LEFT", after, "RIGHT", 6, 0)
 			r.Status:SetTexture(Theme.Media("icon-goto"))
 			W.Color(r.Status, "accent")
 			r.Status:Show()
 			r.Name:SetPoint("LEFT", r.Status, "RIGHT", 6, 0)
 		else
 			r.Status:Hide()
-			r.Name:SetPoint("LEFT", r.Toggle, "RIGHT", 6, 0)
+			r.Name:SetPoint("LEFT", after, "RIGHT", 6, 0)
 		end
 		local M = P.Maps
 		local range = (z.min and z.max) and format(" (%s)", (M and M.FormatLevels) and M.FormatLevels(z.min, z.max) or (z.min .. "-" .. z.max)) or ""
@@ -540,6 +793,26 @@ local function paintRow(r, e, plevel, d, b)
 		r.Star:Hide()
 		r.psTip = e.here and (z.name .. ": you are here") or nil
 		r.psTipLines = nil
+		return
+	end
+
+	-- A chain's finished quests, folded under one row at its end.
+	if e.kind == "done" then
+		r.Toggle:Show()
+		r.Toggle:SetTexture(Theme.Media(e.open and "chevron-down" or "chevron-right"))
+		r.Check:Hide()
+		r.Level:Hide()
+		r.Status:ClearAllPoints()
+		r.Status:SetPoint("LEFT", r.Toggle, "RIGHT", 6, 0)
+		r.Status:SetTexture(Theme.Media("check"))
+		W.Color(r.Status, "success")
+		r.Status:Show()
+		r.Name:SetPoint("LEFT", r.Status, "RIGHT", 6, 0)
+		r.Name:SetText(format("%d done", e.count))
+		W.Color(r.Name, "textDim")
+		r.XP:SetText("")
+		for k = 1, ITEMS do setItem(r.Items[k], nil) end
+		r.Star:Hide()
 		return
 	end
 
@@ -589,10 +862,18 @@ local function paintRow(r, e, plevel, d, b)
 	W.Color(r.Level, levelColor(q and q.level, plevel))
 	r.Status:SetTexture(Theme.Media(st.glyph))
 	W.Color(r.Status, st.color)
-	r.Name:SetText(q and q.title or ("Quest " .. tostring(id)))
+	local title = q and q.title or ("Quest " .. tostring(id))
+	-- In "Near you": what to do there.
+	if e.near == "turnin" then
+		title = title .. "  |cff5fd068hand in|r"
+	elseif e.near == "pickup" then
+		title = title .. "  |cffe6ba66pick up|r"
+	end
+	r.Name:SetText(title)
 	W.Color(r.Name, FQB.Status(id) == "done" and "textDim" or "text")
 	local xp = FQB.XP(id, plevel)
 	r.XP:SetText(xp and (thousands(xp) .. " XP") or "")
+	if b.filter == "log" then paintNear(r, e, id) else paintSize(r, id) end
 	local items = {}
 	for _, list in ipairs({ q and q.rewards or {}, q and q.choices or {} }) do
 		for _, it in ipairs(list) do items[#items + 1] = it end
@@ -654,31 +935,42 @@ local function paintTool()
 	tool.Info:SetText(format("%d ticked%s%d marked", sel, DOT, mk))
 	tool.Clear:SetEnabled(sel > 0)
 	W.SetButtonText(tool.All, anyZoneOpen() and "Collapse all" or "Expand all")
+	local _, b = db()
+	tool.Unit:SetShown(b.filter == "log")
+	W.SetButtonText(tool.Unit, (FQB.Opt and FQB.Opt("nearUnit") == "yards") and "In time" or "In yards")
+	tool.Options:ClearAllPoints()
+	tool.Options:SetPoint("RIGHT", b.filter == "log" and tool.Unit or tool.All, "LEFT", -8, 0)
 	tool.Start.psTip = sel > 0 and "One guide through the ticked quests' chains."
 		or (mk > 0 and "Nothing ticked: one guide through the marked quests' chains." or "Tick a quest or a chain first.")
 end
 
 local function paintHeader()
 	local _, b = db()
+	local sort, log = sortOf(b), b.filter == "log"
 	for _, col in ipairs(header.Cols) do
-		local on = b.sort.key == col.psKey
+		local on = sort.key == col.psKey
 		W.Color(col.Label, on and "accent" or "textMuted")
 		col.Arrow:SetShown(on)
 		if on then
-			col.Arrow:SetTexture(Theme.Media(b.sort.desc and "chevron-down" or "chevron-up"))
+			col.Arrow:SetTexture(Theme.Media(sort.desc and "chevron-down" or "chevron-up"))
 		end
 	end
 	local searching = header.Search:IsShown()
-	header.XPCol:SetShown(not searching)
+	for _, col in ipairs(header.Cols) do
+		-- "Near" belongs to In your quest log only.
+		col:SetShown(not searching and (col.psKey ~= "near" or log))
+	end
 	header.Rewards:SetShown(not searching)
+	header.Size:SetShown(not searching and not log)
 end
 
 local function sortBy(key)
 	local _, b = db()
-	if b.sort.key == key then
-		b.sort.desc = not b.sort.desc
+	local sort = sortOf(b)
+	if sort.key == key then
+		sort.desc = not sort.desc
 	else
-		b.sort.key, b.sort.desc = key, key == "xp"
+		sort.key, sort.desc = key, key == "xp" or key == "rewards"
 	end
 	if scroll then W.ScrollTo(scroll, 0) end
 	repaint()
@@ -694,8 +986,6 @@ local function headerCol(text, key, tip)
 	c.Arrow:SetSize(10, 10)
 	c.psTip = tip
 	c:SetScript("OnClick", function(self) sortBy(self.psKey) end)
-	c:SetScript("OnEnter", W.SimpleTip)
-	c:SetScript("OnLeave", W.HideTip)
 	header.Cols[#header.Cols + 1] = c
 	return c
 end
@@ -738,13 +1028,80 @@ local function prereqText(q)
 	return "After: " .. concat(names, ", ")
 end
 
+-- What a quest asks, one line each: the quest log's own lines (with your
+-- progress) while you have it, else Polestar's Codex objectives with the
+-- mob's rank. At most GOALS lines; the rest as "+N more".
+local GOALS = 3
+local RANK = { boss = "boss", elite = "elite", rare = "rare" }
+local function npcRank(id)
+	local n = P.Codex and P.Codex.Npc and P.Codex.Npc(id)
+	if not n then return nil end
+	if n.boss then return RANK.boss end
+	if n.rare and n.elite then return "rare elite" end
+	if n.rare then return RANK.rare end
+	if n.elite then return RANK.elite end
+	return nil
+end
+
+local function codexGoals(id)
+	local Cx = P.Codex
+	local cq = Cx and Cx.Quest and Cx.Quest(id)
+	local out = {}
+	if not (cq and type(cq.objectives) == "table") then return out, cq end
+	local function name(kind, oid, text)
+		return (Cx.Name and oid and Cx.Name(kind, oid)) or text or "?"
+	end
+	for _, o in ipairs(cq.objectives) do
+		local n = tonumber(o.count) or 0
+		local line
+		if o.type == "kill" then
+			local who, rank = name("npc", o.id, o.text), o.id and npcRank(o.id)
+			line = n > 1 and format("Kill %d %s", n, who) or ("Kill " .. who)
+			if rank then line = line .. " (" .. rank .. ")" end
+		elseif o.type == "item" then
+			local what = name("item", o.id, o.text)
+			line = n > 1 and format("Collect %d %s", n, what) or ("Collect " .. what)
+		elseif o.type == "object" then
+			line = "Use " .. name("object", o.id, o.text)
+		elseif o.type == "talk" then
+			line = "Speak with " .. name("npc", o.id, o.text)
+		elseif o.text and o.text ~= "" then
+			line = o.text
+		end
+		if line then out[#out + 1] = line end
+	end
+	return out, cq
+end
+
+local function goalsText(id)
+	local lines = {}
+	local live = FQB.Status(id) == "log" and C.GetQuestObjectives and C.GetQuestObjectives(id)
+	if type(live) == "table" and #live > 0 then
+		for _, o in ipairs(live) do
+			if o.text and o.text ~= "" then
+				lines[#lines + 1] = o.finished and ("|cff8c8c8c" .. o.text .. "|r") or o.text
+			end
+		end
+	end
+	if #lines == 0 then lines = codexGoals(id) end
+	if #lines == 0 then return "" end
+	local shown = {}
+	for i = 1, min(#lines, GOALS) do shown[i] = "\194\183 " .. lines[i] end
+	if #lines > GOALS then shown[GOALS] = shown[GOALS] .. format("  (+%d more)", #lines - GOALS) end
+	return concat(shown, "\n")
+end
+
 local function paintDetails()
 	local d = details
 	local q = focus and FQB.Quest(focus)
+	d.LoreHit.psFull = nil
 	if not q then
 		d.Title:SetText("Pick a quest")
-		d.Sub:SetText("Click a quest for its rewards; tick quests or chains, then Start guide.")
+		d.Sub:SetText("Click a quest for what it asks, its story and rewards; tick quests or chains, then Start guide.")
 		d.Facts:SetText("")
+		d.Goals:SetText("")
+		d.Lore:SetText("")
+		d.Story:Hide()
 		d.RewardLabel:Hide()
 		d.ChoiceLabel:Hide()
 		for k = 1, DETAIL_ITEMS do setItem(d.Rewards[k], nil); setItem(d.Choices[k], nil) end
@@ -761,6 +1118,10 @@ local function paintDetails()
 	if q.minLevel then sub[#sub + 1] = format("from %d", q.minLevel) end
 	if zone then sub[#sub + 1] = zone end
 	sub[#sub + 1] = st.text
+	local size, tag = nil, nil
+	if FQB.QuestSize then size, tag = FQB.QuestSize(q.id) end
+	if size then sub[#sub + 1] = FQB.SIZE_WORDS[size] end
+	if tag then sub[#sub + 1] = tag == "dungeon" and "Dungeon" or "Group (elite)" end
 	d.Sub:SetText(concat(sub, DOT))
 	local facts = {}
 	local xp = FQB.XP(q.id, plevel)
@@ -772,6 +1133,18 @@ local function paintDetails()
 	local pre = prereqText(q)
 	if pre then facts[#facts + 1] = pre end
 	d.Facts:SetText(concat(facts, "\n"))
+	d.Goals:SetText(goalsText(q.id))
+	local story, source = FQB.QuestStory and FQB.QuestStory(q.id)
+	if story then
+		-- One paragraph, the start of it; "Story ›" says a click reads on.
+		d.Lore:SetText("|cffe6ba66Story \226\128\186|r  " .. (story:gsub("\n+", " ")))
+		d.LoreHit.psTitle, d.LoreHit.psFull, d.LoreHit.psSource = q.title, story, source
+	else
+		d.Lore:SetText("")
+	end
+	-- Another quest picked: its story stays closed until clicked.
+	if d.Story:IsShown() and d.psStoryOf ~= q.id then d.Story:Hide() end
+	d.psStoryOf = q.id
 	local rewards, choices = q.rewards or {}, q.choices or {}
 	d.RewardLabel:SetShown(#rewards > 0)
 	d.ChoiceLabel:SetShown(#choices > 0)
@@ -789,6 +1162,24 @@ local function paintDetails()
 	d.Lookup:SetShown(P.Lookup and P.Lookup.Show ~= nil)
 	d.Mark:Show()
 	W.SetButtonText(d.Mark, db().marked[q.id] and "Unmark" or "Mark")
+end
+
+-- The picked quest's whole story over the details (true), or back (false).
+function QS.ShowStory(on)
+	local d = details
+	if not d then return end
+	local hit = d.LoreHit
+	if not (on and hit.psFull) then d.Story:Hide() return end
+	local sp = d.Story
+	sp.Title:SetText(hit.psTitle or "")
+	sp.Text:SetText(hit.psFull)
+	sp.Source:SetText(hit.psSource or "")
+	sp:Show()
+	C_Timer.After(0, function()
+		local h = (sp.Text:GetStringHeight() or 0) + 8 + (sp.Source:GetStringHeight() or 0) + 8
+		W.SetScrollContent(sp.Scroll, h)
+		W.ScrollTo(sp.Scroll, 0)
+	end)
 end
 
 function QS.Paint()
@@ -856,12 +1247,12 @@ local function buildStrip()
 	local known = P.GetDefault and P.GetDefault(WINDOW_KEY) ~= nil
 	if not (known and W.Slider and W.CompactRow and W.LayoutRow) then return end
 	local slider = W.Slider(strip, "Quests above your level", WINDOW_KEY, 0, anyLevel(), 1, windowText,
-		"How far above your level Available reaches. The same setting as Polestar's quest markers on the map (Options > Map).")
+		nil)
 	W.CompactRow(slider, { height = STRIP_H })
 	slider:SetPoint("TOPLEFT", strip, "TOPLEFT", SH.pad - 12, 0)
 	strip.Slider = slider
 	if P.GetDefault(LOW_KEY) ~= nil and W.Toggle then
-		local low = W.Toggle(strip, "Low-level quests", LOW_KEY, "Include grey quests, which give little XP.")
+		local low = W.Toggle(strip, "Low-level quests", LOW_KEY, nil)
 		W.CompactRow(low, { height = STRIP_H })
 		low:SetPoint("TOPLEFT", slider, "TOPRIGHT", 12, 0)
 		strip.Low = low
@@ -894,6 +1285,7 @@ local function buildHeader()
 	local lvl = headerCol("Lvl", "level", "Sort by level (again: the other way round)")
 	lvl:SetPoint("LEFT", header, "LEFT", 4, 0)
 	lvl:SetWidth(52)
+	header.LvlCol = lvl
 	lvl.Label:SetPoint("LEFT", lvl, "LEFT", 4, 0)
 	lvl.Arrow:SetPoint("LEFT", lvl.Label, "RIGHT", 4, 0)
 	local name = headerCol("Quest", "name", "Sort by name (again: the other way round)")
@@ -908,16 +1300,31 @@ local function buildHeader()
 	xp.Label:SetPoint("RIGHT", xp, "RIGHT", 0, 0)
 	xp.Arrow:SetPoint("RIGHT", xp.Label, "LEFT", -4, 0)
 	header.XPCol = xp
-	header.Rewards = W.Text(header, "small", "textMuted")
-	header.Rewards:SetText("Rewards")
-	header.Rewards:SetPoint("RIGHT", header, "RIGHT", -ITEMS_RIGHT, 0)
-	header.Find = W.IconButton(header, "search", 22, "Search quests and rewards (Ctrl+F)", function()
+	local rw = headerCol("Rewards", "rewards", nil)
+	rw:SetPoint("RIGHT", header, "RIGHT", -ITEMS_RIGHT, 0)
+	rw:SetWidth(70)
+	rw.Label:SetPoint("RIGHT", rw, "RIGHT", 0, 0)
+	rw.Arrow:SetPoint("RIGHT", rw.Label, "LEFT", -4, 0)
+	header.Rewards = rw
+	header.Size = W.Text(header, "small", "textMuted")
+	header.Size:SetText("Length")
+	header.Size:SetPoint("RIGHT", header, "RIGHT", -(XP_RIGHT + XP_W + 6), 0)
+	local near = headerCol("Near", "near", nil)
+	near:SetPoint("RIGHT", header, "RIGHT", -(XP_RIGHT + XP_W + 6), 0)
+	near:SetWidth(SIZE_W + 16)
+	near.Label:SetPoint("RIGHT", near, "RIGHT", 0, 0)
+	near.Arrow:SetPoint("RIGHT", near.Label, "LEFT", -4, 0)
+	header.NearCol = near
+	header.Find = W.IconButton(header, "search", 22, nil, function()
 		if header.Search:IsShown() then QS.CloseSearch() else QS.OpenSearch() end
 	end)
 	header.Find:SetPoint("RIGHT", header, "RIGHT", 0, 0)
 	header.Search = W.SearchBox(header, { "Search quests and reward items", "Search quests", "Search" }, onSearch)
-	header.Search:SetPoint("LEFT", name, "LEFT", 0, 0)
+	-- Across the whole header, the column labels hidden while it shows
+	-- (paintHeader), on a solid backing so nothing shows through its fill.
+	header.Search:SetPoint("LEFT", header, "LEFT", 4, 0)
 	header.Search:SetPoint("RIGHT", header.Find, "LEFT", -6, 0)
+	W.Fill(header.Search, "panel", "BACKGROUND", -8)
 	header.Search:HookScript("OnEscapePressed", function() QS.CloseSearch() end)
 	header.Search:Hide()
 end
@@ -952,8 +1359,6 @@ function QS.Build(parent, shell)
 	tool:SetHeight(TOOL_H)
 	tool.Start = W.Button(tool, "Start guide", function() QS.Start() end, { height = 28, primary = true, icon = "icon-goto" })
 	tool.Start:SetPoint("RIGHT", tool, "RIGHT", -SH.pad, 0)
-	tool.Start:HookScript("OnEnter", W.SimpleTip)
-	tool.Start:HookScript("OnLeave", W.HideTip)
 	tool.Clear = W.Button(tool, "Clear ticks", function()
 		local _, b = db()
 		b.selected = {}
@@ -962,6 +1367,17 @@ function QS.Build(parent, shell)
 	tool.Clear:SetPoint("RIGHT", tool.Start, "LEFT", -8, 0)
 	tool.All = W.Button(tool, "Collapse all", function() QS.ToggleAll() end, { height = 28, ghost = true })
 	tool.All:SetPoint("RIGHT", tool.Clear, "LEFT", -8, 0)
+	-- In your quest log: the way shown in time on foot or in yards (also on
+	-- Freestyle's options page), and that page itself.
+	tool.Unit = W.Button(tool, "In yards", function()
+		if FQB.SetOpt then FQB.SetOpt("nearUnit", FQB.Opt("nearUnit") == "yards" and "time" or "yards") end
+		if root and root:IsVisible() then repaint() end
+	end, { height = 28, ghost = true })
+	tool.Unit:SetPoint("RIGHT", tool.All, "LEFT", -8, 0)
+	tool.Options = W.IconButton(tool, "sliders", 22, nil, function()
+		if FQB.ShowOptions then FQB.ShowOptions() end
+	end)
+	tool.Options:SetPoint("RIGHT", tool.Unit, "LEFT", -8, 0)
 	tool.Info = W.Text(tool, "small", "textDim")
 	tool.Info:SetPoint("LEFT", tool, "LEFT", SH.pad, 0)
 
@@ -988,13 +1404,63 @@ function QS.Build(parent, shell)
 	d.Facts:SetJustifyV("TOP")
 	d.Facts:SetPoint("TOPLEFT", d.Sub, "BOTTOMLEFT", 0, -6)
 	d.Facts:SetPoint("RIGHT", d, "RIGHT", -200, 0)
+	-- What the quest asks (Codex objectives, or the quest log's own lines).
+	d.Goals = W.Text(d, "small", "text")
+	d.Goals:SetWordWrap(true)
+	d.Goals:SetJustifyV("TOP")
+	d.Goals:SetPoint("TOPLEFT", d.Facts, "BOTTOMLEFT", 0, -6)
+	d.Goals:SetPoint("RIGHT", d, "RIGHT", -200, 0)
+	-- The story, cut short; all of it on hover.
+	d.Lore = W.Text(d, "small", "textDim")
+	d.Lore:SetWordWrap(true)
+	d.Lore:SetJustifyV("TOP")
+	if d.Lore.SetMaxLines then d.Lore:SetMaxLines(2) end
+	d.Lore:SetPoint("TOPLEFT", d.Goals, "BOTTOMLEFT", 0, -6)
+	d.Lore:SetPoint("RIGHT", d, "RIGHT", -200, 0)
+	-- Click the story to read all of it: a scrolling page over the details'
+	-- left side, closed with the same click or "Close".
+	d.LoreHit = CreateFrame("Button", nil, d)
+	d.LoreHit:SetAllPoints(d.Lore)
+	d.LoreHit:SetScript("OnClick", function(self) if self.psFull then QS.ShowStory(true) end end)
+	local sp = CreateFrame("Frame", nil, d)
+	sp:SetPoint("TOPLEFT", d, "TOPLEFT", 0, -1)
+	sp:SetPoint("BOTTOMRIGHT", d, "BOTTOMRIGHT", -190, 0)
+	sp:SetFrameLevel(d:GetFrameLevel() + 20)
+	sp:EnableMouse(true)
+	W.Fill(sp, "panel")
+	sp.Title = W.Text(sp, "body", "accent")
+	sp.Title:SetPoint("TOPLEFT", sp, "TOPLEFT", SH.pad, -14)
+	sp.Title:SetPoint("RIGHT", sp, "RIGHT", -110, 0)
+	sp.Close = W.Button(sp, "Close", function() QS.ShowStory(false) end, { height = 22, ghost = true, icon = "chevron-up" })
+	sp.Close:SetPoint("TOPRIGHT", sp, "TOPRIGHT", -12, -10)
+	sp.Scroll = W.Scroll(sp)
+	sp.Scroll:SetPoint("TOPLEFT", sp.Title, "BOTTOMLEFT", 0, -8)
+	sp.Scroll:SetPoint("BOTTOMRIGHT", sp, "BOTTOMRIGHT", -12, 10)
+	sp.Text = W.Text(sp.Scroll.Child, "small", "text")
+	sp.Text:SetWordWrap(true)
+	sp.Text:SetJustifyH("LEFT")
+	sp.Text:SetJustifyV("TOP")
+	sp.Text:SetPoint("TOPLEFT", sp.Scroll.Child, "TOPLEFT", 0, 0)
+	sp.Source = W.Text(sp.Scroll.Child, "small", "textMuted")
+	sp.Source:SetWordWrap(true)
+	sp.Source:SetJustifyH("LEFT")
+	sp.Source:SetPoint("TOPLEFT", sp.Text, "BOTTOMLEFT", 0, -8)
+	sp.Scroll:HookScript("OnSizeChanged", function(self, w)
+		if not (w and w > 0) then return end
+		self.Child:SetWidth(w - 14)
+		sp.Text:SetWidth(w - 14)
+		sp.Source:SetWidth(w - 14)
+	end)
+	sp:SetScript("OnMouseUp", function() QS.ShowStory(false) end)
+	sp:Hide()
+	d.Story = sp
 	d.RewardLabel = W.Text(d, "small", "textMuted")
 	d.RewardLabel:SetText("Rewards")
 	d.RewardLabel:SetPoint("BOTTOMLEFT", d, "BOTTOMLEFT", SH.pad, 24)
 	d.Rewards, d.Choices = {}, {}
 	local prev = d.RewardLabel
 	for k = 1, DETAIL_ITEMS do
-		local b = itemButton(d, 26)
+		local b = itemButton(d, 26, true)
 		b:SetPoint("LEFT", prev, "RIGHT", k == 1 and 8 or 4, 0)
 		d.Rewards[k] = b
 		prev = b
@@ -1003,16 +1469,14 @@ function QS.Build(parent, shell)
 	d.ChoiceLabel:SetText("Choose one")
 	prev = d.ChoiceLabel
 	for k = 1, DETAIL_ITEMS do
-		local b = itemButton(d, 26)
+		local b = itemButton(d, 26, true)
 		b:SetPoint("LEFT", prev, "RIGHT", k == 1 and 8 or 4, 0)
 		d.Choices[k] = b
 		prev = b
 	end
 	d.Guide = W.Button(d, "Guide this quest", function() if focus then QS.Start({ focus }) end end, { height = 26, icon = "icon-goto" })
 	d.Guide:SetPoint("TOPRIGHT", d, "TOPRIGHT", -SH.pad, -14)
-	d.Lookup = W.Button(d, "Show in Lookup", function()
-		if focus and P.Lookup and P.Lookup.Show then P.Lookup.Show(nil, "quest", focus) end
-	end, { height = 26, ghost = true })
+	d.Lookup = W.Button(d, "Show in Lookup", function() if focus then QS.ShowInLookup(focus) end end, { height = 26, ghost = true })
 	d.Lookup:SetPoint("TOPRIGHT", d.Guide, "BOTTOMRIGHT", 0, -6)
 	d.Mark = W.Button(d, "Mark", function() if focus then QS.ToggleMark(focus) end end, { height = 26, ghost = true, icon = "star" })
 	d.Mark:SetPoint("TOPRIGHT", d.Lookup, "BOTTOMRIGHT", 0, -6)
@@ -1099,6 +1563,7 @@ end
 function QS.OnNav(key)
 	local _, b = db()
 	b.filter = key
+	focusItem = nil
 	if scroll then W.ScrollTo(scroll, 0) end
 	repaint()
 end
@@ -1110,13 +1575,46 @@ function QS.Show()
 end
 FQ.Browse = QS.Show
 
+-- Where the player is on the Quests page, to come back to (Nav.lua): the
+-- list, the picked quest, the search and how far it was scrolled.
+function QS.Origin()
+	local _, b = db()
+	local filter, picked, lit, text = b.filter, focus, focusItem, query
+	local off = scroll and scroll:GetVerticalScroll() or 0
+	return { key = KEY, label = "Quests", restore = function()
+		local _, b2 = db()
+		b2.filter = filter
+		focus, focusItem = picked, lit
+		QS.Show()
+		if header and text ~= "" then
+			QS.OpenSearch()
+			header.Search:SetText(text)
+		end
+		C_Timer.After(0, function()
+			if not scroll then return end
+			QS.Refresh()
+			W.ScrollTo(scroll, off)
+			paintVisible()
+		end)
+	end }
+end
+
+-- Lookup's page for a quest, with "Back to Quests" there.
+function QS.ShowInLookup(id)
+	if not (id and P.Lookup and P.Lookup.Show) then return end
+	local go = function() P.Lookup.Show(nil, "quest", id) end
+	if FQB.Nav then FQB.Nav.Jump(QS.Origin(), go) else go() end
+end
+
 -- Show these quests in the browser (from the Gear page or Lookup): All
 -- quests, their zones and chains open, the first one picked and scrolled to.
-function QS.Reveal(ids)
+-- opts.item: a reward of theirs to light up (the one the Gear page was on).
+function QS.Reveal(ids, opts)
 	local _, b = db()
 	b.filter = "all"
 	db()
 	focus = nil
+	focusItem = opts and opts.item or nil
 	for _, id in ipairs(ids or {}) do
 		local q = FQB.Quest(id)
 		if q then
@@ -1152,6 +1650,10 @@ if P.On then
 	P.On("SETTING_CHANGED", function(path)
 		if path == WINDOW_KEY or path == LOW_KEY or path == "" or path == "qol" or path == nil then
 			if root and root:IsVisible() then repaint() end
+		elseif type(path) == "string" and path:find("^freestyle") then
+			-- Freestyle's own options (Near you): planned again now.
+			reachAt = 0
+			if root and root:IsVisible() then refreshReach(true); repaint() end
 		end
 	end)
 end
@@ -1164,4 +1666,17 @@ if UI.RegisterSection then
 		enter = function() QS.Start() end,
 	})
 	QS.Registered = true
+end
+
+-- In your quest log, while it shows: "Near you" and the Near column follow
+-- you as you move (a light pass every few seconds, never in combat).
+if C_Timer and C_Timer.NewTicker then
+	C_Timer.NewTicker(5, function()
+		if not (root and root:IsVisible()) or query ~= "" then return end
+		if InCombatLockdown and InCombatLockdown() then return end
+		local _, b = db()
+		if b.filter ~= "log" or FQB.State() ~= "ready" then return end
+		refreshReach(true)
+		QS.Refresh()
+	end)
 end

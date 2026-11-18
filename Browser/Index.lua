@@ -1,4 +1,4 @@
--- Polestar Free Questing: the quest browser's index.
+-- Polestar Freestyle: the quest browser's index.
 --
 -- Every quest this character can ever take (faction, race and class allow
 -- it), read from Polestar's Codex (Polestar_Codex: levels, zone, the

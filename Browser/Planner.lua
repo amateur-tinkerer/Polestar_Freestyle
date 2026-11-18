@@ -1,4 +1,4 @@
--- Polestar Free Questing: guides for the quests picked in the browser.
+-- Polestar Freestyle: guides for the quests picked in the browser.
 --
 -- One guide for every quest picked (or marked): each quest's chain from the
 -- first quest this character has not done (Polestar's Lookup.QuestChain:
@@ -244,7 +244,7 @@ local function build(key)
 	end
 	return {
 		title = titleFor(targets, items),
-		category = FQ.CATEGORY or "Free questing",
+		category = FQ.CATEGORY or "Freestyle questing",
 		why = "The quests you picked in the quest browser, each from the first quest of its chain you have not done.",
 		keywords = { "free", "questing", "quest chain", "rewards" },
 		steps = steps,
@@ -337,7 +337,7 @@ do
 					P.RegisterGuide(def)
 				else
 					-- No data yet: a holder the login replan fills.
-					P.RegisterGuide({ id = gid, pack = "lookup", title = "Quest chains", category = FQ.CATEGORY or "Free questing",
+					P.RegisterGuide({ id = gid, pack = "lookup", title = "Quest chains", category = FQ.CATEGORY or "Freestyle questing",
 						author = "Polestar_FreeQuest", version = 1,
 						steps = { { title = "Quest chains", goals = { { t = "task", text = "Reading Polestar's quest data..." } } } } })
 				end

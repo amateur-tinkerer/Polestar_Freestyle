@@ -1,4 +1,4 @@
--- Polestar Free Questing: the Gear section of Polestar's hub.
+-- Polestar Freestyle: the Gear section of Polestar's hub.
 --
 -- Your gear as the character pane lays it out (head to wrist on the left,
 -- hands to trinkets on the right, weapons along the foot), and between the
@@ -110,6 +110,14 @@ local function gainText(res, short)
 	local G = P.Gear
 	if G and G.GainText then return (G.GainText(res.pct)) end
 	return format("+%d%%", floor(res.pct + 0.5))
+end
+
+-- The Closest column's words: capitalised, a vendor as a coin.
+local COIN = "|TInterface\\MoneyFrame\\UI-GoldIcon:12:12|t"
+local function todoText(t)
+	if not t or t == "" then return "" end
+	if t == "vendor" then return COIN end
+	return t:sub(1, 1):upper() .. t:sub(2)
 end
 
 local function slotName(slot)
@@ -252,11 +260,25 @@ local function rankedList(slot, all)
 				local tier, steps, best = FQG.Rank(res, keepSource)
 				if tier then
 					seen[res.id] = true
+					-- An empty slot has no percent: its pieces rank by their own
+					-- score (Polestar's weights, res.delta), above every upgrade.
+					local gain = res.pct or (res.empty and (1e6 + (res.delta or 0))) or 0
 					out[#out + 1] = { res = res, tier = tier, steps = steps, best = best, slot = s,
-						gain = res.pct or (res.empty and 1e6) or 0, name = lower(FQB.ItemName(res.id) or "") }
+						gain = gain, name = lower(FQB.ItemName(res.id) or ""),
+						-- No required level (most quest rewards): the level its source opens at.
+						level = (res.req and res.req > 0) and res.req
+							or (best and (best.minLevel or best.levelMin or best.level)) or 0 }
 				end
 			end
 		end
+	end
+	-- For an empty slot: each piece against the best one there, in percent.
+	local top = {}
+	for _, e in ipairs(out) do
+		if e.res.empty and (e.res.delta or 0) > (top[e.slot] or 0) then top[e.slot] = e.res.delta end
+	end
+	for _, e in ipairs(out) do
+		if e.res.empty and top[e.slot] then e.rel = floor((e.res.delta or 0) / top[e.slot] * 100 + 0.5) end
 	end
 	local key, desc = g.sort.key, g.sort.desc
 	local function cmp(a, b)
@@ -269,7 +291,7 @@ local function rankedList(slot, all)
 		elseif key == "closest" then
 			if a.steps ~= b.steps then va, vb = a.steps, b.steps else va, vb = -a.gain, -b.gain end
 		elseif key == "level" then
-			va, vb = a.res.req or 0, b.res.req or 0
+			va, vb = a.level or 0, b.level or 0
 		else
 			va, vb = a.name, b.name
 		end
@@ -374,7 +396,6 @@ local function makeSlot(slot, right)
 		GV.item = nil -- another slot: back to its list
 		GV.Paint()
 	end)
-	b:SetScript("OnEnter", slotTip)
 	b:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
 	slots[slot] = b
 	return b
@@ -422,7 +443,7 @@ local function rowMenu(r)
 		{ text = g.marked[id] and "Unmark" or "Mark", icon = "star", onClick = function() GV.ToggleMark(id) end },
 		{ text = "Guide to this item", icon = "icon-goto", onClick = function() GV.Start({ id }) end },
 		{ text = "Show in Lookup", icon = "search", onClick = function()
-			if P.Lookup and P.Lookup.Show then P.Lookup.Show(nil, "item", id) end
+			if P.Lookup and P.Lookup.Show then GV.Jump(function() P.Lookup.Show(nil, "item", id) end) end
 		end },
 	}, { point = "TOPLEFT", relPoint = "BOTTOMLEFT", x = 40, y = 0 })
 end
@@ -439,7 +460,7 @@ local function row(i)
 	r.Tier:SetWidth(2)
 	r.Tier:SetPoint("TOPLEFT", r, "TOPLEFT", 0, -4)
 	r.Tier:SetPoint("BOTTOMLEFT", r, "BOTTOMLEFT", 0, 4)
-	r.Star = W.IconButton(r, "star", 20, "Mark: Gear guide takes the marked items.", function(self)
+	r.Star = W.IconButton(r, "star", 20, nil, function(self)
 		local id = self:GetParent().psItem
 		if id then GV.ToggleMark(id) end
 	end)
@@ -500,12 +521,19 @@ local function paintRow(r, e, g, plevel)
 	if g.markedOnly and e.slot then text = "|cffc2b9a9" .. slotName(e.slot) .. "|r" .. DOT .. text end
 	r.Source:SetText(text)
 	r.psSlot = e.slot
-	r.Gain:SetText(gainText(res, true))
-	r.Level:SetText(res.req and res.req > 0 and tostring(res.req) or "")
-	W.Color(r.Level, FQB.LevelColor and FQB.LevelColor(res.req, plevel) or "textDim")
+	r.Gain:SetText(e.rel and format("new %d%%", e.rel) or gainText(res, true))
+	-- The level it needs; an item without one (most quest rewards) shows its
+	-- source's level, dimmed.
+	if res.req and res.req > 0 then
+		r.Level:SetText(tostring(res.req))
+		W.Color(r.Level, FQB.LevelColor and FQB.LevelColor(res.req, plevel) or "textDim")
+	else
+		r.Level:SetText(e.level and e.level > 0 and tostring(e.level) or "")
+		W.Color(r.Level, "textMuted")
+	end
 	if res.wearNow then
 		W.Color(r.Gain, "success")
-		r.Todo:SetText(e.best and e.best.todo or "")
+		r.Todo:SetText(todoText(e.best and e.best.todo))
 		W.Color(r.Todo, e.tier == 1 and "accent" or "textDim")
 	else
 		W.Color(r.Gain, "warning")
@@ -608,26 +636,22 @@ function GV.OpenItem(id, slot)
 	GV.Paint()
 end
 
--- Leave for another hub section (the Quests list, a dungeon's page), keeping
--- the way back: a "Back to Gear" button shows there until it is used or the
--- player comes back another way.
-function GV.Jump(fn)
+-- Where the player is on the Gear page, to come back to (Nav.lua).
+function GV.Origin()
 	local _, g = db()
-	GV.returnTo = { item = GV.item, slot = g.slot }
-	fn()
-	if GV.UpdateBack then GV.UpdateBack() end
+	local item, slot = GV.item, g.slot
+	return { key = KEY, label = "Gear", restore = function()
+		local _, g2 = db()
+		g2.slot = slot or g2.slot
+		GV.item = item
+		GV.Show()
+	end }
 end
 
-function GV.GoBack()
-	local back = GV.returnTo
-	GV.returnTo = nil
-	if back then
-		local _, g = db()
-		g.slot = back.slot or g.slot
-		GV.item = back.item
-	end
-	GV.Show()
-	if GV.UpdateBack then GV.UpdateBack() end
+-- Leave for another hub section (the Quests list, a dungeon's page, Lookup),
+-- keeping the way back: "Back to Gear" shows there (Nav.lua).
+function GV.Jump(fn)
+	if FQB.Nav then FQB.Nav.Jump(GV.Origin(), fn) else fn() end
 end
 
 function GV.CloseItem()
@@ -683,8 +707,6 @@ local function headerCol(text, key, tip, width)
 	c.Arrow:SetSize(10, 10)
 	c.psTip = tip
 	c:SetScript("OnClick", function(self) sortBy(self.psKey) end)
-	c:SetScript("OnEnter", W.SimpleTip)
-	c:SetScript("OnLeave", W.HideTip)
 	header.Cols[#header.Cols + 1] = c
 	return c
 end
@@ -771,17 +793,6 @@ function GV.Build(parent, shell)
 	card.Sub = W.Text(card, "small", "textDim")
 	card.Sub:SetPoint("BOTTOMLEFT", card.Icon, "BOTTOMRIGHT", 10, 0)
 	card.Sub:SetPoint("RIGHT", card, "RIGHT", -10, 0)
-	local hover = CreateFrame("Frame", nil, card)
-	hover:SetAllPoints(card.Icon)
-	hover:SetScript("OnEnter", function(self)
-		local _, g = db()
-		if GameTooltip and GetInventoryItemLink("player", g.slot) then
-			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-			GameTooltip:SetInventoryItem("player", g.slot)
-			GameTooltip:Show()
-		end
-	end)
-	hover:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
 
 	tool = CreateFrame("Frame", nil, center)
 	tool:SetPoint("TOPLEFT", card, "BOTTOMLEFT", 0, -4)
@@ -790,8 +801,6 @@ function GV.Build(parent, shell)
 	tool.Start = W.Button(tool, "Gear guide", function() GV.Start() end, { height = 28, primary = true, icon = "icon-goto" })
 	tool.Start:SetPoint("RIGHT", tool, "RIGHT", 0, 0)
 	tool.Start.psTip = "One guide to every marked item: quest chains first, then dungeons, rares and vendors."
-	tool.Start:HookScript("OnEnter", W.SimpleTip)
-	tool.Start:HookScript("OnLeave", W.HideTip)
 	tool.Reach = W.Text(tool, "small", "textDim")
 	tool.Reach:SetPoint("LEFT", tool, "LEFT", 6, 0)
 	tool.Reach:SetPoint("RIGHT", tool.Start, "LEFT", -10, 0)
@@ -874,8 +883,6 @@ function GV.Build(parent, shell)
 		repaint()
 	end, { height = 26, primary = true })
 	banner.Fix:SetPoint("BOTTOMLEFT", banner, "BOTTOMLEFT", 14, 12)
-	banner.Fix:HookScript("OnEnter", W.SimpleTip)
-	banner.Fix:HookScript("OnLeave", W.HideTip)
 	banner:Hide()
 	return root
 end
@@ -992,34 +999,6 @@ if Hooks and Hooks.ItemLines then
 		local text = "|TInterface\\AddOns\\Polestar\\Media\\UI\\star:12|t Marked upgrade (Gear: Gear guide)"
 		if Hooks.AddLine then Hooks.AddLine(tooltip, text, nil, 1, 0.82, 0) else tooltip:AddLine(text, 1, 0.82, 0) end
 	end)
-end
-
--- "Back to Gear" on the hub while another section shows what the Gear page
--- sent the player to (GV.Jump); gone once used, once back on Gear, or when
--- the hub closes.
-local backBtn
-function GV.UpdateBack()
-	local Pk = UI.Picker
-	local win = Pk and Pk.frame
-	if not win then return end
-	if Pk.Section and Pk.Section() == KEY then GV.returnTo = nil end
-	local want = GV.returnTo ~= nil and win:IsShown()
-	if want and not backBtn then
-		backBtn = W.Button(win, "Back to Gear", function() GV.GoBack() end, { height = 28, icon = "chevron-left" })
-		backBtn:SetPoint("BOTTOMRIGHT", win.Header or win, "BOTTOMRIGHT", -SH.pad, 14)
-		backBtn:SetFrameLevel(win:GetFrameLevel() + 30)
-		backBtn.psTip = "Back to the Gear page you came from."
-		backBtn:HookScript("OnEnter", W.SimpleTip)
-		backBtn:HookScript("OnLeave", W.HideTip)
-		win:HookScript("OnHide", function()
-			GV.returnTo = nil
-			if backBtn then backBtn:Hide() end
-		end)
-	end
-	if backBtn then backBtn:SetShown(want) end
-end
-if UI.Picker and type(UI.Picker.Render) == "function" and hooksecurefunc then
-	hooksecurefunc(UI.Picker, "Render", function() pcall(GV.UpdateBack) end)
 end
 
 UI.RegisterSection({

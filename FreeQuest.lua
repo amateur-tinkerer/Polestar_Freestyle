@@ -1,4 +1,4 @@
--- Polestar Free Questing: a guide built from the quests already in your log.
+-- Polestar Freestyle: a guide built from the quests already in your log.
 --
 -- Polestar's leveling guides walk a planned route. This addon plays the quests
 -- you picked up yourself in the same guide window, with the same arrow, map
@@ -39,7 +39,7 @@ if not (P and P.RegisterPack and P.RegisterGuide and P.Engine and P.QuestDB and 
 	local f = CreateFrame("Frame")
 	f:RegisterEvent("PLAYER_LOGIN")
 	f:SetScript("OnEvent", function()
-		print("|cffe6ba66Polestar Free Questing|r needs Polestar 0.3.7 or newer.")
+		print("|cffe6ba66Polestar Freestyle|r needs Polestar 0.3.7 or newer.")
 	end)
 	return
 end
@@ -56,9 +56,9 @@ P.FreeQuest = FQ -- for /dump and tests; not an API
 local PACK = "freequest"
 local GUIDE_ID = "freequest/log"
 FQ.GUIDE_ID = GUIDE_ID
-local TITLE = "Free questing"
+local TITLE = "Freestyle questing"
 -- The guide's category: its own, so its tab and card carry its icon.
-local CATEGORY = "Free questing"
+local CATEGORY = "Freestyle questing"
 FQ.CATEGORY = CATEGORY
 local MEDIA = "Interface\\AddOns\\" .. ADDON .. "\\Media\\"
 local ICON = MEDIA .. "freequest"
@@ -610,7 +610,7 @@ local function packFormat()
 end
 
 P.RegisterPack({
-	addon = ADDON, id = PACK, format = packFormat(), title = "Free questing", author = "Polestar_FreeQuest",
+	addon = ADDON, id = PACK, format = packFormat(), title = "Freestyle questing", author = "Polestar_FreeQuest",
 	version = (C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata(ADDON, "Version")) or "0.1.0",
 	license = "GPL-3.0-only",
 	notes = "Polestar's guide window for the quests already in your log. /polestar free",
@@ -649,6 +649,30 @@ local function dbReady()
 	if Q.IsLoaded() then return true end
 	local ok, reason = Q.Load()
 	return ok and true or false, reason
+end
+
+-- For the Quests section's log list: each quest in your log, how far its next
+-- place is from where you stand (travel seconds, straight line) and whether it
+-- is ready to hand in. nil while the quest database can't load (combat).
+-- -> { [questID] = { cost = seconds, ready = bool } }
+function FQ.LogReach()
+	if not Q.IsLoaded() then
+		if InCombatLockdown and InCombatLockdown() then return nil end
+		if not dbReady() then return nil end
+	end
+	local from = P.PlayerPoint and P.PlayerPoint()
+	if not from then return nil end
+	local out = {}
+	local ok = pcall(function()
+		for _, t in ipairs(buildTasks("all", {})) do
+			if t.kind == "work" or (t.kind == "turnin" and t.ready) then
+				local _, c = taskReach(t, from)
+				local cur = out[t.q]
+				if not cur or c < cur.cost then out[t.q] = { cost = c, ready = t.kind == "turnin" } end
+			end
+		end
+	end)
+	return ok and out or nil
 end
 
 -- Plans again and gives the guide its new steps: in its tab (ReplaceSteps
@@ -708,9 +732,9 @@ function FQ.Open()
 	local ready, reason = dbReady()
 	if not ready then
 		if reason == "combat" then
-			say("Free questing: the quest database loads after combat. Try again in a moment.")
+			say("Freestyle questing: the quest database loads after combat. Try again in a moment.")
 		else
-			say("Free questing needs Polestar's quest database: turn on Options > Questing > the quest database (any quest marker or quest tooltip loads it).")
+			say("Freestyle questing needs Polestar's quest database: turn on Options > Questing > the quest database (any quest marker or quest tooltip loads it).")
 		end
 		return false
 	end
@@ -721,13 +745,13 @@ function FQ.Open()
 	else
 		local ok, err = FQ.Refresh(true)
 		if not ok then
-			say("Free questing: could not build the guide (" .. tostring(err) .. ").")
+			say("Freestyle questing: could not build the guide (" .. tostring(err) .. ").")
 			return false
 		end
 		local opened = E.OpenTab and E.OpenTab(GUIDE_ID, true)
 		if not opened then
 			if E.OpenTab then
-				say("Free questing: six guide tabs is the limit. Close one, then try again.")
+				say("Freestyle questing: six guide tabs is the limit. Close one, then try again.")
 				return false
 			end
 			E.SetGuide(GUIDE_ID)
@@ -923,16 +947,20 @@ local function command(rest)
 	local arg = lower(text)
 	if arg == "all" then
 		FQ.SetScope("all")
-		say("Free questing: every quest in your log.")
+		say("Freestyle questing: every quest in your log.")
 	elseif arg == "zone" or arg == "here" or arg == "follow" then
 		FQ.SetScope("zone")
-		say("Free questing: the quests of the zone you are in.")
+		say("Freestyle questing: the quests of the zone you are in.")
 	elseif arg == "" then
 		FQ.Open()
 	elseif arg == "close" or arg == "off" or arg == "stop" then
 		FQ.Close()
 	elseif arg == "refresh" then
 		FQ.Refresh(true)
+	elseif arg == "options" or arg == "settings" or arg == "config" then
+		if not (FQ.Browser and FQ.Browser.ShowOptions and FQ.Browser.ShowOptions()) then
+			say("Polestar Freestyle's options are in Polestar's Options (Polestar_Options must be enabled).")
+		end
 	elseif arg == "browse" or arg == "browser" or arg == "quests" then
 		if FQ.Browse then
 			FQ.Browse()
@@ -953,11 +981,11 @@ local function command(rest)
 		local z = FQ.FindZone(text)
 		if z then
 			FQ.SetScope("pin", z)
-			say("Free questing: the quests of " .. z.name .. ".")
+			say("Freestyle questing: the quests of " .. z.name .. ".")
 		else
 			local names = {}
 			for _, zz in ipairs(FQ.Zones()) do names[#names + 1] = zz.name end
-			say(format("Free questing: no zone called \"%s\".%s", text,
+			say(format("Freestyle questing: no zone called \"%s\".%s", text,
 				#names > 0 and (" Zones in your log: " .. concat(names, ", ") .. ".") or ""))
 		end
 	end
@@ -965,10 +993,11 @@ end
 FQ.Command = command
 
 if P.RegisterCommand then
-	P.RegisterCommand("free", command, "Free questing: your quest log as a guide (free [zone|all|<zone name>|close])")
+	P.RegisterCommand("free", command, "Freestyle questing: your quest log as a guide (free [zone|all|<zone name>|close])")
 	P.RegisterCommand("quests", function() command("browse") end, "Quest browser: every quest by zone, with chains, XP and rewards")
 end
 SLASH_POLESTARFREEQUEST1 = "/freequest"
+SLASH_POLESTARFREEQUEST2 = "/freestyle"
 SlashCmdList.POLESTARFREEQUEST = command
 
 ---------------------------------------------------------------------------

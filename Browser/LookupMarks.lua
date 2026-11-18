@@ -1,4 +1,4 @@
--- Polestar Free Questing: marking quests from Polestar's item search.
+-- Polestar Freestyle: marking quests from Polestar's item search.
 --
 -- On Lookup's page for an item (an item, mount, pet, recipe or tabard), each
 -- quest that gives it ("Quest reward" source rows) gets a star: click it to

@@ -1,4 +1,4 @@
--- Polestar Free Questing: the gear planner's index.
+-- Polestar Freestyle: the gear planner's index.
 --
 -- Every uncommon or better item this character could wear (Polestar's gear
 -- advice decides: armour type, weapon skills, class), by equipment slot, with
@@ -201,7 +201,7 @@ local function reach(src, plevel, top)
 		elseif left and left > 1 then
 			r.todo = format("%d quests left", left)
 		elseif st == "level" then
-			r.todo = format("quest at level %d", src.minLevel or src.level or 0)
+			r.todo = format("quest lvl %d", src.minLevel or src.level or 0)
 		else
 			r.todo = "quest"
 		end
