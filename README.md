@@ -26,8 +26,8 @@ guide for whatever is in your quest log.
 ## Install
 
 1. Install [Polestar](https://github.com/fitzforge/polestar) 0.4.1 or newer.
-2. Download `Polestar_Freestyle-vX.Y.Z.zip` from the
-   [latest release](https://github.com/amateur-tinkerer/Polestar_Freestyle/releases/latest).
+2. Download [Polestar_Freestyle-v0.4.4.zip](https://github.com/amateur-tinkerer/Polestar_Freestyle/releases/download/v0.4.4/Polestar_Freestyle-v0.4.4.zip)
+   (or the newest one from the [releases page](https://github.com/amateur-tinkerer/Polestar_Freestyle/releases/latest)).
 3. Unzip it into `World of Warcraft\_forever_\Interface\AddOns\`, so `Polestar_Freestyle` sits next to
    `Polestar`.
 
